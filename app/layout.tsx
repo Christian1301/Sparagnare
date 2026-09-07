@@ -3,7 +3,7 @@ import "./globals.css";
 import RegisterServiceWorker from "@/components/RegisterServiceWorker";
 
 export const metadata: Metadata = {
-  title: "Bilancio Personale",
+  title: "Sparagnare",
   description: "Entrate, uscite fisse e uscite variabili, personali o condivise.",
   manifest: "/manifest.json",
   icons: {
@@ -17,7 +17,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "Bilancio",
+    title: "Sparagnare",
   },
 };
 

@@ -1,6 +1,6 @@
 {
-  "name": "Bilancio Personale",
-  "short_name": "Bilancio",
+  "name": "Sparagnare",
+  "short_name": "Sparagnare",
   "description": "Entrate, uscite fisse e uscite variabili, personali o condivise.",
   "start_url": "/",
   "scope": "/",

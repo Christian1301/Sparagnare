@@ -50,7 +50,7 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center px-6">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <div className="font-serif text-3xl font-semibold text-ink">Bilancio Personale</div>
+          <div className="font-serif text-3xl font-semibold text-ink">Sparagnare</div>
           <div className="text-sm text-muted mt-1">
             {mode === "signin" ? "Accedi al tuo bilancio" : "Crea un nuovo account"}
           </div>

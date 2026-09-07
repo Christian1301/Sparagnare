@@ -1,4 +1,4 @@
-# Bilancio Personale
+# Sparagnare
 
 App di bilancio con entrate, uscite fisse ricorrenti e uscite variabili,
 in portafogli personali o condivisi. Costruita con **Next.js 14 (App Router)**

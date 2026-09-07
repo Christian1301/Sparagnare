@@ -1,5 +1,5 @@
 -- ============================================================
--- Bilancio Personale — schema iniziale
+-- Sparagnare — schema iniziale
 -- Esegui questo file nel SQL Editor di Supabase (o via CLI:
 -- supabase db push)
 -- ============================================================

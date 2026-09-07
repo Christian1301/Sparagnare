@@ -1,5 +1,5 @@
 -- ============================================================
--- Bilancio Personale — visibilita' profili condivisi e gestione
+-- Sparagnare — visibilita' profili condivisi e gestione
 -- membership dei portafogli
 -- Esegui questo file nel SQL Editor di Supabase (o via CLI:
 -- supabase db push) DOPO 0001_init.sql
