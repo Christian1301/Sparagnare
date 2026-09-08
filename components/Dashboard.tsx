@@ -173,7 +173,7 @@ export default function Dashboard({ wallets, userId, userEmail }: { wallets: any
   return (
     <div className="max-w-md mx-auto min-h-screen pb-16">
       {/* Wallet tabs */}
-      <div className="flex items-center gap-2 px-5 pt-4 overflow-x-auto">
+      <div className="safe-top sticky top-0 z-10 bg-paper/95 backdrop-blur-sm flex items-center gap-2 px-5 pt-4 pb-2 overflow-x-auto border-b border-line">
         {walletList.map((w) => (
           <button
             key={w.id}
@@ -199,9 +199,9 @@ export default function Dashboard({ wallets, userId, userEmail }: { wallets: any
       {/* Summary */}
       <div className="px-5 pt-4 pb-2">
         <div className="flex items-center justify-between">
-          <button onClick={() => shiftMonth(-1)} className="text-muted p-1.5">‹</button>
+          <button onClick={() => shiftMonth(-1)} aria-label="Mese precedente" className="text-muted w-10 h-10 flex items-center justify-center text-lg active:bg-line rounded-full transition-colors">‹</button>
           <div className="text-sm text-muted">{MONTHS[cursor.month]} {cursor.year}</div>
-          <button onClick={() => shiftMonth(1)} className="text-muted p-1.5">›</button>
+          <button onClick={() => shiftMonth(1)} aria-label="Mese successivo" className="text-muted w-10 h-10 flex items-center justify-center text-lg active:bg-line rounded-full transition-colors">›</button>
         </div>
         <div className={`font-serif text-4xl font-semibold text-center mt-1 ${balance >= 0 ? "text-ink" : "text-rust"}`}>
           {formatEUR(balance)}
@@ -272,12 +272,17 @@ export default function Dashboard({ wallets, userId, userEmail }: { wallets: any
 
       {/* FAB */}
       {!loading && !addMenu && (
-        <button
-          onClick={() => setAddMenu("choose")}
-          className="fixed bottom-6 right-1/2 translate-x-[240px] w-[52px] h-[52px] rounded-full bg-gold text-ink shadow-lg flex items-center justify-center text-2xl"
-        >
-          +
-        </button>
+        <div className="fixed inset-x-0 bottom-0 z-10 flex justify-center pointer-events-none safe-bottom">
+          <div className="relative w-full max-w-md h-0">
+            <button
+              onClick={() => setAddMenu("choose")}
+              aria-label="Aggiungi"
+              className="pointer-events-auto absolute bottom-6 right-5 w-14 h-14 rounded-full bg-gold text-ink shadow-lg flex items-center justify-center text-2xl leading-none active:scale-95 transition-transform"
+            >
+              +
+            </button>
+          </div>
+        </div>
       )}
 
       {addMenu === "choose" && (
@@ -369,11 +374,11 @@ function TxRow({
             <button onClick={() => setConfirmingId(null)} className="border border-line rounded px-2 py-1 text-xs">Annulla</button>
           </div>
         ) : (
-          <div className="flex items-center gap-0.5">
+          <div className="flex items-center -mr-1.5">
             {tx.is_recurring && onStopRecurring && (
-              <button onClick={() => setStoppingId(tx.id)} title="Interrompi ricorrenza" className="text-muted p-1">⏸</button>
+              <button onClick={() => setStoppingId(tx.id)} title="Interrompi ricorrenza" aria-label="Interrompi ricorrenza" className="text-muted w-9 h-9 flex items-center justify-center active:bg-line rounded-full transition-colors">⏸</button>
             )}
-            <button onClick={() => setConfirmingId(tx.id)} className="text-line text-muted p-1">🗑</button>
+            <button onClick={() => setConfirmingId(tx.id)} aria-label="Elimina" className="text-muted w-9 h-9 flex items-center justify-center active:bg-line rounded-full transition-colors">🗑</button>
           </div>
         )}
       </div>
@@ -392,15 +397,18 @@ function TxRow({
 
 function Sheet({ children, onClose, title }: any) {
   return (
-    <div className="fixed inset-0 bg-ink/40 flex items-end justify-center z-20" onClick={onClose}>
-      <div onClick={(e) => e.stopPropagation()} className="bg-paper w-full max-w-md rounded-t-2xl p-5 relative max-h-[80vh] overflow-y-auto">
+    <div className="sheet-backdrop fixed inset-0 bg-ink/40 flex items-end justify-center z-20" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="sheet-panel safe-bottom bg-paper w-full max-w-md rounded-t-2xl p-5 pt-3 relative max-h-[85vh] overflow-y-auto">
+        <div className="w-9 h-1 rounded-full bg-line mx-auto mb-3" />
         {title && (
           <div className="flex justify-between items-center mb-3.5">
             <div className="text-base font-semibold">{title}</div>
-            <button onClick={onClose} className="text-muted">✕</button>
+            <button onClick={onClose} aria-label="Chiudi" className="-mr-2 w-9 h-9 flex items-center justify-center text-muted">✕</button>
           </div>
         )}
-        {!title && <button onClick={onClose} className="absolute top-3.5 right-5 text-muted">✕</button>}
+        {!title && (
+          <button onClick={onClose} aria-label="Chiudi" className="absolute top-2 right-3 w-9 h-9 flex items-center justify-center text-muted">✕</button>
+        )}
         {children}
       </div>
     </div>
@@ -452,7 +460,7 @@ function TransactionForm({ title, categories, onClose, onSubmit }: any) {
           Si ripete ogni mese
         </button>
 
-        <button type="submit" className="bg-ink text-paper rounded-lg py-2.5 text-sm font-semibold">
+        <button type="submit" className="bg-ink text-paper rounded-lg py-2.5 text-sm font-semibold active:opacity-80 transition-opacity">
           Salva
         </button>
       </form>
@@ -469,7 +477,7 @@ function CategoryManagerBody({ categories, onAdd, onDelete }: any) {
           <div key={c.id} className="flex items-center gap-2.5 py-1.5">
             <div className="w-2.5 h-2.5 rounded-full" style={{ background: c.color }} />
             <div className="flex-1 text-sm">{c.name}</div>
-            <button onClick={() => onDelete(c.id)} className="text-muted">🗑</button>
+            <button onClick={() => onDelete(c.id)} aria-label="Elimina categoria" className="text-muted w-9 h-9 flex items-center justify-center active:bg-line rounded-full transition-colors shrink-0">🗑</button>
           </div>
         ))}
       </div>
@@ -477,7 +485,7 @@ function CategoryManagerBody({ categories, onAdd, onDelete }: any) {
         <input placeholder="Nuova categoria" value={name} onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") { onAdd(name); setName(""); } }}
           className="flex-1 border border-line rounded-lg px-3 py-2.5 text-sm bg-white outline-none" />
-        <button onClick={() => { onAdd(name); setName(""); }} className="bg-ink text-paper rounded-lg px-4">✓</button>
+        <button onClick={() => { onAdd(name); setName(""); }} aria-label="Aggiungi categoria" className="bg-ink text-paper rounded-lg px-4 active:opacity-80 transition-opacity">✓</button>
       </div>
     </div>
   );
@@ -495,7 +503,7 @@ function MembersBody({
           <div key={m.user_id} className="flex items-center justify-between text-sm">
             <span>{m.profiles?.display_name || m.profiles?.email} {m.role === "owner" && "(proprietario)"}</span>
             {isOwner && m.user_id !== userId && (
-              <button onClick={() => onRemove(m.user_id)} className="text-muted">🗑</button>
+              <button onClick={() => onRemove(m.user_id)} aria-label="Rimuovi persona" className="text-muted w-9 h-9 flex items-center justify-center active:bg-line rounded-full transition-colors shrink-0">🗑</button>
             )}
           </div>
         ))}
@@ -504,7 +512,7 @@ function MembersBody({
         <div className="flex gap-2">
           <input placeholder="Email da invitare" value={email} onChange={(e) => setEmail(e.target.value)}
             className="flex-1 border border-line rounded-lg px-3 py-2.5 text-sm bg-white outline-none" />
-          <button onClick={() => { onInvite(email); setEmail(""); }} className="bg-ink text-paper rounded-lg px-4 text-sm">
+          <button onClick={() => { onInvite(email); setEmail(""); }} className="bg-ink text-paper rounded-lg px-4 text-sm active:opacity-80 transition-opacity">
             Invita
           </button>
         </div>
@@ -552,7 +560,7 @@ function NewWalletBody({ onCreate }: any) {
     <div className="flex flex-col gap-3">
       <input placeholder="Nome (es. Famiglia)" value={name} onChange={(e) => setName(e.target.value)}
         className="border border-line rounded-lg px-3 py-2.5 text-sm bg-white outline-none" />
-      <button onClick={() => onCreate(name)} className="bg-ink text-paper rounded-lg py-2.5 text-sm font-semibold">
+      <button onClick={() => onCreate(name)} className="bg-ink text-paper rounded-lg py-2.5 text-sm font-semibold active:opacity-80 transition-opacity">
         Crea portafoglio
       </button>
     </div>
