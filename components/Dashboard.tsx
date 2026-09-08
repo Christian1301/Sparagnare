@@ -29,6 +29,7 @@ export default function Dashboard({ wallets, userId, userEmail }: { wallets: any
   const [cursor, setCursor] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
 
   const [addMenu, setAddMenu] = useState<null | "choose" | "income" | "expense">(null);
+  const [savingTx, setSavingTx] = useState(false);
   const [showCatManager, setShowCatManager] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
   const [showNewWallet, setShowNewWallet] = useState(false);
@@ -82,19 +83,25 @@ export default function Dashboard({ wallets, userId, userEmail }: { wallets: any
   }
 
   async function handleAddTransaction(type: "income" | "expense", form: any) {
+    if (savingTx) return; // evita doppio invio (es. doppio tap su mobile)
     const amt = parseFloat(String(form.amount).replace(",", "."));
     if (!amt || amt <= 0) return;
-    const { error } = await addTransaction({
-      walletId: activeWalletId!,
-      type,
-      amount: amt,
-      categoryId: type === "expense" ? form.categoryId : null,
-      description: form.description.trim(),
-      date: form.date,
-      isRecurring: form.recurring,
-    });
-    if (error) setError(error);
-    else { setAddMenu(null); loadWalletData(activeWalletId!); }
+    setSavingTx(true);
+    try {
+      const { error } = await addTransaction({
+        walletId: activeWalletId!,
+        type,
+        amount: amt,
+        categoryId: type === "expense" ? form.categoryId : null,
+        description: form.description.trim(),
+        date: form.date,
+        isRecurring: form.recurring,
+      });
+      if (error) setError(error);
+      else { setAddMenu(null); loadWalletData(activeWalletId!); }
+    } finally {
+      setSavingTx(false);
+    }
   }
 
   async function handleDelete(id: string) {
@@ -301,6 +308,7 @@ export default function Dashboard({ wallets, userId, userEmail }: { wallets: any
         <TransactionForm
           title="Nuova entrata"
           categories={null}
+          saving={savingTx}
           onClose={() => setAddMenu(null)}
           onSubmit={(form: any) => handleAddTransaction("income", form)}
         />
@@ -310,6 +318,7 @@ export default function Dashboard({ wallets, userId, userEmail }: { wallets: any
         <TransactionForm
           title="Nuova uscita"
           categories={categories}
+          saving={savingTx}
           onClose={() => setAddMenu(null)}
           onSubmit={(form: any) => handleAddTransaction("expense", form)}
         />
@@ -415,7 +424,7 @@ function Sheet({ children, onClose, title }: any) {
   );
 }
 
-function TransactionForm({ title, categories, onClose, onSubmit }: any) {
+function TransactionForm({ title, categories, onClose, onSubmit, saving }: any) {
   const [form, setForm] = useState({
     amount: "", categoryId: categories?.[0]?.id ?? null, description: "",
     date: new Date().toISOString().slice(0, 10), recurring: false,
@@ -423,7 +432,7 @@ function TransactionForm({ title, categories, onClose, onSubmit }: any) {
   return (
     <Sheet onClose={onClose} title={title}>
       <form
-        onSubmit={(e) => { e.preventDefault(); onSubmit(form); }}
+        onSubmit={(e) => { e.preventDefault(); if (!saving) onSubmit(form); }}
         className="flex flex-col gap-3"
       >
         <input autoFocus inputMode="decimal" placeholder="Importo (€)" value={form.amount}
@@ -460,8 +469,8 @@ function TransactionForm({ title, categories, onClose, onSubmit }: any) {
           Si ripete ogni mese
         </button>
 
-        <button type="submit" className="bg-ink text-paper rounded-lg py-2.5 text-sm font-semibold active:opacity-80 transition-opacity">
-          Salva
+        <button type="submit" disabled={saving} className="bg-ink text-paper rounded-lg py-2.5 text-sm font-semibold active:opacity-80 transition-opacity disabled:opacity-50">
+          {saving ? "Salvataggio..." : "Salva"}
         </button>
       </form>
     </Sheet>
