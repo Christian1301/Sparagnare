@@ -38,6 +38,18 @@ create table public.wallets (
   created_at timestamptz default now()
 );
 
+-- ---------- WALLET MEMBERS ----------
+-- Creata subito dopo "wallets" e PRIMA della funzione is_wallet_member():
+-- una funzione "language sql" viene validata da Postgres alla creazione,
+-- quindi deve poter risolvere ogni tabella che referenzia nel corpo.
+create table public.wallet_members (
+  wallet_id uuid references public.wallets(id) on delete cascade,
+  user_id uuid references public.profiles(id) on delete cascade,
+  role text default 'member' check (role in ('owner', 'member')),
+  joined_at timestamptz default now(),
+  primary key (wallet_id, user_id)
+);
+
 create function public.is_wallet_member(wallet uuid)
 returns boolean as $$
   select exists (
@@ -46,6 +58,8 @@ returns boolean as $$
   );
 $$ language sql security definer stable;
 
+-- ---------- WALLETS: RLS ----------
+-- Abilitata solo ora che is_wallet_member() esiste.
 alter table public.wallets enable row level security;
 
 create policy "members can view wallet"
@@ -64,15 +78,7 @@ create policy "owner can delete wallet"
   on public.wallets for delete
   using (owner_id = auth.uid());
 
--- ---------- WALLET MEMBERS ----------
-create table public.wallet_members (
-  wallet_id uuid references public.wallets(id) on delete cascade,
-  user_id uuid references public.profiles(id) on delete cascade,
-  role text default 'member' check (role in ('owner', 'member')),
-  joined_at timestamptz default now(),
-  primary key (wallet_id, user_id)
-);
-
+-- ---------- WALLET MEMBERS: RLS ----------
 alter table public.wallet_members enable row level security;
 
 create policy "members can view membership"
