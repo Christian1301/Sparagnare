@@ -9,6 +9,7 @@ import {
   createSharedWallet, inviteMember, removeMember, signOut,
   stopRecurring, deleteWallet, leaveWallet,
   createPersonalAccount, transferBetweenAccounts, deleteTransfer,
+  setMirrorEnabled, addSplitExpense, deleteSplitExpense,
 } from "@/app/actions";
 
 const MONTHS = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
@@ -29,9 +30,11 @@ export default function Dashboard({ wallets, userId, userEmail }: { wallets: any
   const [error, setError] = useState("");
   const [cursor, setCursor] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
 
-  const [addMenu, setAddMenu] = useState<null | "choose" | "income" | "expense" | "transfer">(null);
+  const [addMenu, setAddMenu] = useState<null | "choose" | "income" | "expense" | "transfer" | "split">(null);
   const [savingTx, setSavingTx] = useState(false);
   const [savingTransfer, setSavingTransfer] = useState(false);
+  const [savingSplit, setSavingSplit] = useState(false);
+  const [mirrorWalletIds, setMirrorWalletIds] = useState<string[]>([]);
   const [showCatManager, setShowCatManager] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
   const [showNewWallet, setShowNewWallet] = useState(false);
@@ -50,7 +53,7 @@ export default function Dashboard({ wallets, userId, userEmail }: { wallets: any
     ] = await Promise.all([
       supabase.from("categories").select("*").eq("wallet_id", walletId).order("name"),
       supabase.from("transactions").select("*").eq("wallet_id", walletId).order("date", { ascending: false }),
-      supabase.from("wallet_members").select("user_id, role, profiles(email, display_name)").eq("wallet_id", walletId),
+      supabase.from("wallet_members").select("user_id, role, mirror_enabled, profiles(email, display_name)").eq("wallet_id", walletId),
     ]);
     const loadError = catsError || txsError || memsError;
     if (loadError) {
@@ -66,6 +69,11 @@ export default function Dashboard({ wallets, userId, userEmail }: { wallets: any
     if (activeWalletId) loadWalletData(activeWalletId);
   }, [activeWalletId, loadWalletData]);
 
+  useEffect(() => {
+    supabase.from("wallet_members").select("wallet_id").eq("user_id", userId).eq("mirror_enabled", true)
+      .then(({ data }) => setMirrorWalletIds((data || []).map((d: any) => d.wallet_id)));
+  }, [supabase, userId]);
+
   const monthIncome = useMemo(() => transactions.filter((t) => t.type === "income" && occursInMonth(t, cursor)), [transactions, cursor]);
   const monthExpenses = useMemo(() => transactions.filter((t) => t.type === "expense" && occursInMonth(t, cursor)), [transactions, cursor]);
   const totalIncome = monthIncome.reduce((s, t) => s + Number(t.amount), 0);
@@ -74,6 +82,12 @@ export default function Dashboard({ wallets, userId, userEmail }: { wallets: any
 
   function catFor(id: string | null) {
     return categories.find((c) => c.id === id) || { name: "—", color: "#999" };
+  }
+
+  function extraNote(t: any) {
+    if (t.mirror_of_id) return " · rispecchiata";
+    if (t.split_group_id) return activeWallet?.is_shared ? " · Cointestata" : " · Quota cointestata";
+    return "";
   }
 
   function shiftMonth(delta: number) {
@@ -98,6 +112,7 @@ export default function Dashboard({ wallets, userId, userEmail }: { wallets: any
         description: form.description.trim(),
         date: form.date,
         isRecurring: form.recurring,
+        isPrivate: type === "expense" ? !!form.isPrivate : false,
       });
       if (error) setError(error);
       else { setAddMenu(null); loadWalletData(activeWalletId!); }
@@ -130,9 +145,37 @@ export default function Dashboard({ wallets, userId, userEmail }: { wallets: any
     }
   }
 
+  async function handleSplitExpense(form: any) {
+    if (savingSplit) return;
+    const amt = parseFloat(String(form.amount).replace(",", "."));
+    if (!amt || amt <= 0) return;
+    const totalPercent = form.shares.reduce((sum: number, sh: any) => sum + (parseFloat(sh.percent) || 0), 0);
+    if (Math.abs(totalPercent - 100) > 0.5) {
+      setError("Le percentuali devono sommare a 100.");
+      return;
+    }
+    setSavingSplit(true);
+    try {
+      const { error } = await addSplitExpense({
+        walletId: activeWalletId!,
+        categoryId: form.categoryId,
+        amount: amt,
+        description: form.description.trim(),
+        date: form.date,
+        shares: form.shares.map((sh: any) => ({ userId: sh.userId, percent: parseFloat(sh.percent) || 0 })),
+      });
+      if (error) setError(error);
+      else { setAddMenu(null); loadWalletData(activeWalletId!); }
+    } finally {
+      setSavingSplit(false);
+    }
+  }
+
   async function handleDelete(tx: any) {
     const { error } = tx.is_transfer
       ? await deleteTransfer(tx.transfer_group_id)
+      : tx.split_group_id
+      ? await deleteSplitExpense(tx.split_group_id)
       : await deleteTransaction(tx.id);
     if (error) setError(error);
     else loadWalletData(activeWalletId!);
@@ -163,6 +206,15 @@ export default function Dashboard({ wallets, userId, userEmail }: { wallets: any
     setWalletList((w) => [...w, newWallet]);
     setActiveWalletId(newWallet.id);
     setShowNewWallet(false);
+  }
+
+  async function handleToggleMirror(enabled: boolean) {
+    const { error } = await setMirrorEnabled(activeWalletId!, enabled);
+    if (error) { setError(error); return; }
+    setMirrorWalletIds((ids) =>
+      enabled ? Array.from(new Set([...ids, activeWalletId!])) : ids.filter((id) => id !== activeWalletId)
+    );
+    loadWalletData(activeWalletId!);
   }
 
   async function handleInvite(email: string) {
@@ -277,7 +329,7 @@ export default function Dashboard({ wallets, userId, userEmail }: { wallets: any
               return (
                 <TxRow key={t.id} tx={t}
                   label={t.is_transfer ? `Trasferimento da ${peerWallet?.name || "altro conto"}` : (t.description || "Entrata")}
-                  sub={t.is_transfer ? "Trasferimento" : (t.is_recurring ? "Ricorrente" : new Date(t.date + "T00:00:00").toLocaleDateString("it-IT", { day: "numeric", month: "short" }))}
+                  sub={(t.is_transfer ? "Trasferimento" : (t.is_recurring ? "Ricorrente" : new Date(t.date + "T00:00:00").toLocaleDateString("it-IT", { day: "numeric", month: "short" }))) + extraNote(t)}
                   amountColor="text-teal" sign="+" confirmingId={confirmingId} setConfirmingId={setConfirmingId}
                   stoppingId={stoppingId} setStoppingId={setStoppingId}
                   onStopRecurring={() => handleStopRecurring(t.id)}
@@ -295,7 +347,7 @@ export default function Dashboard({ wallets, userId, userEmail }: { wallets: any
               return (
                 <TxRow key={t.id} tx={t}
                   label={t.is_transfer ? `Trasferimento verso ${peerWallet?.name || "altro conto"}` : (t.description || cat.name)}
-                  sub={t.is_transfer ? "Trasferimento" : `${cat.name}${t.is_recurring ? " · Ricorrente" : " · " + new Date(t.date + "T00:00:00").toLocaleDateString("it-IT", { day: "numeric", month: "short" })}`}
+                  sub={(t.is_transfer ? "Trasferimento" : `${cat.name}${t.is_recurring ? " · Ricorrente" : " · " + new Date(t.date + "T00:00:00").toLocaleDateString("it-IT", { day: "numeric", month: "short" })}`) + extraNote(t)}
                   dot={t.is_transfer ? undefined : cat.color} amountColor="text-rust" sign="–"
                   confirmingId={confirmingId} setConfirmingId={setConfirmingId}
                   stoppingId={stoppingId} setStoppingId={setStoppingId}
@@ -334,12 +386,17 @@ export default function Dashboard({ wallets, userId, userEmail }: { wallets: any
           <button onClick={() => setAddMenu("income")} className="w-full flex items-center gap-2.5 px-3.5 py-3 rounded-lg border border-line bg-white text-[15px] mb-2">
             <span className="text-teal">＋</span> Entrata
           </button>
-          <button onClick={() => setAddMenu("expense")} className={`w-full flex items-center gap-2.5 px-3.5 py-3 rounded-lg border border-line bg-white text-[15px]${!activeWallet?.is_shared && walletList.filter((w) => !w.is_shared).length >= 2 ? " mb-2" : ""}`}>
+          <button onClick={() => setAddMenu("expense")} className={`w-full flex items-center gap-2.5 px-3.5 py-3 rounded-lg border border-line bg-white text-[15px]${(!activeWallet?.is_shared && walletList.filter((w) => !w.is_shared).length >= 2) || activeWallet?.is_shared ? " mb-2" : ""}`}>
             <span className="text-rust">－</span> Uscita
           </button>
           {!activeWallet?.is_shared && walletList.filter((w) => !w.is_shared).length >= 2 && (
             <button onClick={() => setAddMenu("transfer")} className="w-full flex items-center gap-2.5 px-3.5 py-3 rounded-lg border border-line bg-white text-[15px]">
               <span className="text-ink">⇄</span> Trasferimento
+            </button>
+          )}
+          {activeWallet?.is_shared && (
+            <button onClick={() => setAddMenu("split")} className="w-full flex items-center gap-2.5 px-3.5 py-3 rounded-lg border border-line bg-white text-[15px]">
+              <span className="text-ink">🤝</span> Spesa cointestata
             </button>
           )}
         </Sheet>
@@ -360,6 +417,7 @@ export default function Dashboard({ wallets, userId, userEmail }: { wallets: any
           title="Nuova uscita"
           categories={categories}
           saving={savingTx}
+          showPrivacy={!activeWallet?.is_shared && mirrorWalletIds.length > 0}
           onClose={() => setAddMenu(null)}
           onSubmit={(form: any) => handleAddTransaction("expense", form)}
         />
@@ -372,6 +430,17 @@ export default function Dashboard({ wallets, userId, userEmail }: { wallets: any
           saving={savingTransfer}
           onClose={() => setAddMenu(null)}
           onSubmit={handleTransfer}
+        />
+      )}
+
+      {addMenu === "split" && (
+        <SplitExpenseForm
+          categories={categories}
+          members={members}
+          userId={userId}
+          saving={savingSplit}
+          onClose={() => setAddMenu(null)}
+          onSubmit={handleSplitExpense}
         />
       )}
 
@@ -396,6 +465,8 @@ export default function Dashboard({ wallets, userId, userEmail }: { wallets: any
             onLeaveWallet={handleLeaveWallet}
             confirmingWalletAction={confirmingWalletAction}
             setConfirmingWalletAction={setConfirmingWalletAction}
+            mirrorEnabled={mirrorWalletIds.includes(activeWalletId)}
+            onToggleMirror={handleToggleMirror}
           />
         </Sheet>
       )}
@@ -475,10 +546,10 @@ function Sheet({ children, onClose, title }: any) {
   );
 }
 
-function TransactionForm({ title, categories, onClose, onSubmit, saving }: any) {
+function TransactionForm({ title, categories, onClose, onSubmit, saving, showPrivacy }: any) {
   const [form, setForm] = useState({
     amount: "", categoryId: categories?.[0]?.id ?? null, description: "",
-    date: new Date().toISOString().slice(0, 10), recurring: false,
+    date: new Date().toISOString().slice(0, 10), recurring: false, isPrivate: false,
   });
   return (
     <Sheet onClose={onClose} title={title}>
@@ -519,6 +590,19 @@ function TransactionForm({ title, categories, onClose, onSubmit, saving }: any) 
           </span>
           Si ripete ogni mese
         </button>
+
+        {showPrivacy && (
+          <button type="button" onClick={() => setForm({ ...form, isPrivate: !form.isPrivate })}
+            className="flex items-center gap-2 border border-line rounded-lg px-3 py-2.5 text-sm text-left">
+            <span className={`w-[18px] h-[18px] rounded border border-line flex items-center justify-center ${form.isPrivate ? "bg-gold" : ""}`}>
+              {form.isPrivate && "✓"}
+            </span>
+            <span>
+              Privata
+              <span className="block text-xs text-muted">Nel portafoglio condiviso comparira' come "Altro", senza descrizione</span>
+            </span>
+          </button>
+        )}
 
         <button type="submit" disabled={saving} className="bg-ink text-paper rounded-lg py-2.5 text-sm font-semibold active:opacity-80 transition-opacity disabled:opacity-50">
           {saving ? "Salvataggio..." : "Salva"}
@@ -584,6 +668,80 @@ function TransferForm({ wallets, activeWalletId, onClose, onSubmit, saving }: an
   );
 }
 
+function SplitExpenseForm({ categories, members, userId, onClose, onSubmit, saving }: any) {
+  const initialShares = members.map((m: any) => ({
+    userId: m.user_id,
+    label: m.profiles?.display_name || m.profiles?.email || (m.user_id === userId ? "Tu" : "Membro"),
+    percent: members.length ? (100 / members.length).toFixed(2) : "100",
+  }));
+  const [form, setForm] = useState({
+    amount: "", categoryId: categories?.[0]?.id ?? null, description: "",
+    date: new Date().toISOString().slice(0, 10), shares: initialShares,
+  });
+
+  function updateShare(shareUserId: string, percent: string) {
+    setForm((f: any) => ({
+      ...f,
+      shares: f.shares.map((s: any) => (s.userId === shareUserId ? { ...s, percent } : s)),
+    }));
+  }
+
+  const totalPercent = form.shares.reduce((sum: number, s: any) => sum + (parseFloat(s.percent) || 0), 0);
+  const isBalanced = Math.abs(totalPercent - 100) < 0.5;
+
+  return (
+    <Sheet onClose={onClose} title="Spesa cointestata">
+      <form
+        onSubmit={(e) => { e.preventDefault(); if (!saving && isBalanced) onSubmit(form); }}
+        className="flex flex-col gap-3"
+      >
+        <input autoFocus inputMode="decimal" placeholder="Importo totale (€)" value={form.amount}
+          onChange={(e) => setForm({ ...form, amount: e.target.value })}
+          className="border border-line rounded-lg px-3 py-2.5 text-sm bg-white outline-none" required />
+
+        {categories && (
+          <div className="flex gap-1.5 flex-wrap">
+            {categories.map((c: any) => (
+              <button type="button" key={c.id} onClick={() => setForm({ ...form, categoryId: c.id })}
+                className="px-3 py-1.5 rounded-full text-sm"
+                style={{
+                  border: form.categoryId === c.id ? `2px solid ${c.color}` : "1px solid #D8D2C2",
+                  background: form.categoryId === c.id ? `${c.color}1A` : "transparent",
+                }}>
+                {c.name}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <input placeholder="Descrizione (opzionale)" value={form.description}
+          onChange={(e) => setForm({ ...form, description: e.target.value })}
+          className="border border-line rounded-lg px-3 py-2.5 text-sm bg-white outline-none" />
+
+        <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })}
+          className="border border-line rounded-lg px-3 py-2.5 text-sm bg-white outline-none" required />
+
+        <div className="flex flex-col gap-2">
+          <div className="text-xs text-muted">Ripartizione (deve sommare a 100%)</div>
+          {form.shares.map((s: any) => (
+            <div key={s.userId} className="flex items-center gap-2">
+              <span className="flex-1 text-sm truncate">{s.label}</span>
+              <input inputMode="decimal" value={s.percent} onChange={(e) => updateShare(s.userId, e.target.value)}
+                className="w-20 border border-line rounded-lg px-2 py-1.5 text-sm bg-white outline-none text-right" />
+              <span className="text-sm text-muted">%</span>
+            </div>
+          ))}
+          <div className={`text-xs ${isBalanced ? "text-muted" : "text-rust"}`}>Totale: {totalPercent.toFixed(2)}%</div>
+        </div>
+
+        <button type="submit" disabled={saving || !isBalanced} className="bg-ink text-paper rounded-lg py-2.5 text-sm font-semibold active:opacity-80 transition-opacity disabled:opacity-50">
+          {saving ? "Salvataggio..." : "Aggiungi spesa cointestata"}
+        </button>
+      </form>
+    </Sheet>
+  );
+}
+
 function CategoryManagerBody({ categories, onAdd, onDelete }: any) {
   const [name, setName] = useState("");
   return (
@@ -610,6 +768,7 @@ function CategoryManagerBody({ categories, onAdd, onDelete }: any) {
 function MembersBody({
   members, userId, isOwner, onInvite, onRemove,
   onDeleteWallet, onLeaveWallet, confirmingWalletAction, setConfirmingWalletAction,
+  mirrorEnabled, onToggleMirror,
 }: any) {
   const [email, setEmail] = useState("");
   return (
@@ -638,6 +797,22 @@ function MembersBody({
       </p>
 
       <div className="mt-5 pt-4 border-t border-line">
+        <button
+          type="button"
+          onClick={() => onToggleMirror(!mirrorEnabled)}
+          className="w-full flex items-center justify-between gap-3 text-left"
+        >
+          <span className="text-sm">
+            Rispecchia qui le mie transazioni
+            <span className="block text-xs text-muted mt-0.5">Entrate/uscite personali visibili qui (descrizione sempre privata)</span>
+          </span>
+          <span className={`w-11 h-6 rounded-full shrink-0 relative transition-colors ${mirrorEnabled ? "bg-gold" : "bg-line"}`}>
+            <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${mirrorEnabled ? "translate-x-5" : "translate-x-0.5"}`} />
+          </span>
+        </button>
+      </div>
+
+      <div className="mt-4 pt-4 border-t border-line">
         {confirmingWalletAction ? (
           <div className="flex flex-col gap-2">
             <p className="text-xs text-rust">
