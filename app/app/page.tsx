@@ -9,13 +9,19 @@ export default async function AppPage() {
 
   const { data: memberships } = await supabase
     .from("wallet_members")
-    .select("role, wallets(id, name, is_shared, owner_id)")
+    .select("role, wallets(id, name, is_shared, owner_id, kind)")
     .eq("user_id", user.id);
+
+  function walletOrder(w: any) {
+    // principale (0) prima, poi i conti di risparmio (1), poi i condivisi (2)
+    if (w.is_shared) return 2;
+    return w.kind === "risparmio" ? 1 : 0;
+  }
 
   const wallets = (memberships || [])
     .map((m: any) => ({ ...m.wallets, role: m.role }))
     .filter(Boolean)
-    .sort((a: any, b: any) => (a.is_shared === b.is_shared ? 0 : a.is_shared ? 1 : -1));
+    .sort((a: any, b: any) => walletOrder(a) - walletOrder(b));
 
   return <Dashboard wallets={wallets} userId={user.id} userEmail={user.email ?? ""} />;
 }
