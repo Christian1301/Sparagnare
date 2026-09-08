@@ -10,6 +10,7 @@ import {
   stopRecurring, deleteWallet, leaveWallet,
   createPersonalAccount, transferBetweenAccounts, deleteTransfer,
   setMirrorEnabled, addSplitExpense, deleteSplitExpense,
+  updateDisplayName, deleteAccount,
 } from "@/app/actions";
 
 const MONTHS = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
@@ -19,7 +20,7 @@ function formatEUR(n: number) {
   return new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR" }).format(n || 0);
 }
 
-export default function Dashboard({ wallets, userId, userEmail }: { wallets: any[]; userId: string; userEmail: string }) {
+export default function Dashboard({ wallets, userId, userEmail, userDisplayName }: { wallets: any[]; userId: string; userEmail: string; userDisplayName?: string }) {
   const supabase = createClient();
   const [walletList, setWalletList] = useState(wallets);
   const [activeWalletId, setActiveWalletId] = useState(wallets[0]?.id ?? null);
@@ -38,6 +39,11 @@ export default function Dashboard({ wallets, userId, userEmail }: { wallets: any
   const [showCatManager, setShowCatManager] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
   const [showNewWallet, setShowNewWallet] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
+  const [displayName, setDisplayName] = useState(userDisplayName || "");
+  const [savingProfileName, setSavingProfileName] = useState(false);
+  const [confirmingDeleteAccount, setConfirmingDeleteAccount] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [stoppingId, setStoppingId] = useState<string | null>(null);
   const [confirmingWalletAction, setConfirmingWalletAction] = useState(false);
@@ -224,6 +230,26 @@ export default function Dashboard({ wallets, userId, userEmail }: { wallets: any
     else { setError(""); loadWalletData(activeWalletId!); }
   }
 
+  async function handleSaveDisplayName(name: string) {
+    if (savingProfileName) return;
+    setSavingProfileName(true);
+    try {
+      const { error } = await updateDisplayName(name);
+      if (error) setError(error);
+      else { setError(""); setDisplayName(name.trim()); }
+    } finally {
+      setSavingProfileName(false);
+    }
+  }
+
+  async function handleDeleteAccount() {
+    if (deletingAccount) return;
+    setDeletingAccount(true);
+    const { error } = await deleteAccount();
+    if (error) { setError(error); setDeletingAccount(false); return; }
+    window.location.href = "/login";
+  }
+
   async function handleStopRecurring(id: string) {
     // Interrompe la voce ricorrente a partire dal mese attualmente
     // visualizzato: l'ultima occorrenza resta il mese precedente.
@@ -281,8 +307,8 @@ export default function Dashboard({ wallets, userId, userEmail }: { wallets: any
         >
           + Portafoglio
         </button>
-        <button onClick={() => signOut()} className="ml-auto shrink-0 text-xs text-muted underline pr-1">
-          Esci
+        <button onClick={() => setShowProfile(true)} className="ml-auto shrink-0 text-xs text-muted underline pr-1">
+          Profilo
         </button>
       </div>
 
@@ -476,6 +502,25 @@ export default function Dashboard({ wallets, userId, userEmail }: { wallets: any
       {showNewWallet && (
         <Sheet onClose={() => setShowNewWallet(false)} title="Nuovo portafoglio">
           <NewWalletBody onCreate={handleCreateWallet} />
+        </Sheet>
+      )}
+
+      {showProfile && (
+        <Sheet
+          onClose={() => { setShowProfile(false); setConfirmingDeleteAccount(false); }}
+          title="Profilo"
+        >
+          <ProfileBody
+            email={userEmail}
+            displayName={displayName}
+            onSaveName={handleSaveDisplayName}
+            savingName={savingProfileName}
+            onSignOut={() => signOut()}
+            onDeleteAccount={handleDeleteAccount}
+            confirmingDelete={confirmingDeleteAccount}
+            setConfirmingDelete={setConfirmingDeleteAccount}
+            deletingAccount={deletingAccount}
+          />
         </Sheet>
       )}
     </div>
@@ -853,6 +898,60 @@ function MembersBody({
         ) : (
           <button onClick={() => setConfirmingWalletAction(true)} className="text-xs text-rust underline">
             {isOwner ? "Elimina portafoglio" : "Esci dal portafoglio"}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ProfileBody({
+  email, displayName, onSaveName, savingName,
+  onSignOut, onDeleteAccount, confirmingDelete, setConfirmingDelete, deletingAccount,
+}: any) {
+  const [name, setName] = useState(displayName || "");
+  return (
+    <div>
+      <div className="text-xs text-muted mb-1">Email</div>
+      <div className="text-sm mb-4">{email}</div>
+
+      <div className="text-xs text-muted mb-1">Nome visualizzato</div>
+      <div className="flex gap-2 mb-1">
+        <input value={name} onChange={(e) => setName(e.target.value)}
+          className="flex-1 border border-line rounded-lg px-3 py-2.5 text-sm bg-white outline-none" />
+        <button onClick={() => onSaveName(name)} disabled={savingName || !name.trim()}
+          className="bg-ink text-paper rounded-lg px-4 text-sm active:opacity-80 transition-opacity disabled:opacity-50">
+          {savingName ? "..." : "Salva"}
+        </button>
+      </div>
+      <p className="text-xs text-muted mb-5">Usato ad esempio nella lista membri dei portafogli condivisi.</p>
+
+      <div className="pt-4 border-t border-line">
+        <button onClick={onSignOut} className="w-full text-left text-sm py-2">
+          Esci
+        </button>
+      </div>
+
+      <div className="mt-2 pt-4 border-t border-line">
+        {confirmingDelete ? (
+          <div className="flex flex-col gap-2">
+            <p className="text-xs text-rust">
+              Eliminare definitivamente il tuo account? Verranno eliminati tutti i tuoi dati, inclusi i portafogli condivisi di cui sei proprietario (anche per gli altri membri). L&apos;operazione non e&apos; reversibile.
+            </p>
+            <div className="flex gap-2">
+              <button onClick={onDeleteAccount} disabled={deletingAccount}
+                className="bg-rust text-white rounded-lg py-2 text-sm flex-1 disabled:opacity-50">
+                {deletingAccount ? "Eliminazione..." : "Elimina account"}
+              </button>
+              <button onClick={() => setConfirmingDelete(false)} disabled={deletingAccount}
+                className="border border-line rounded-lg py-2 text-sm flex-1 disabled:opacity-50">
+                Annulla
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button onClick={() => setConfirmingDelete(true)} className="text-xs text-rust underline">
+            Elimina account
           </button>
         )}
       </div>

@@ -23,5 +23,18 @@ export default async function AppPage() {
     .filter(Boolean)
     .sort((a: any, b: any) => walletOrder(a) - walletOrder(b));
 
-  return <Dashboard wallets={wallets} userId={user.id} userEmail={user.email ?? ""} />;
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("display_name")
+    .eq("id", user.id)
+    .single();
+
+  return (
+    <Dashboard
+      wallets={wallets}
+      userId={user.id}
+      userEmail={user.email ?? ""}
+      userDisplayName={profile?.display_name ?? ""}
+    />
+  );
 }

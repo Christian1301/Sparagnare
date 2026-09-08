@@ -8,6 +8,28 @@ export async function signOut() {
   await supabase.auth.signOut();
 }
 
+export async function updateDisplayName(name: string) {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Non autenticato." };
+
+  const trimmed = name.trim();
+  if (!trimmed) return { error: "Il nome non puo' essere vuoto." };
+
+  const { error } = await supabase.from("profiles").update({ display_name: trimmed }).eq("id", user.id);
+  if (error) return { error: error.message };
+  revalidatePath("/app");
+  return { error: null };
+}
+
+export async function deleteAccount() {
+  const supabase = createClient();
+  const { error } = await supabase.rpc("delete_own_account");
+  if (error) return { error: error.message };
+  await supabase.auth.signOut();
+  return { error: null };
+}
+
 export async function addTransaction(input: {
   walletId: string;
   type: "income" | "expense";
