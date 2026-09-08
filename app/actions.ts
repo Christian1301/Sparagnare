@@ -62,6 +62,9 @@ async function mirrorTransaction(
     date: string;
     is_recurring: boolean;
     recurring_end_date: string | null;
+    is_transfer?: boolean;
+    transfer_group_id?: string | null;
+    transfer_peer_wallet_id?: string | null;
   },
   isPrivate: boolean
 ) {
@@ -109,6 +112,9 @@ async function mirrorTransaction(
       is_recurring: sourceTx.is_recurring,
       recurring_end_date: sourceTx.recurring_end_date,
       is_private: isPrivate,
+      is_transfer: sourceTx.is_transfer ?? false,
+      transfer_group_id: sourceTx.transfer_group_id ?? null,
+      transfer_peer_wallet_id: sourceTx.transfer_peer_wallet_id ?? null,
       mirror_of_id: sourceTx.id,
       created_by: userId,
     });
@@ -284,6 +290,7 @@ export async function transferBetweenAccounts(input: {
   amount: number;
   date: string;
   description: string;
+  isPrivate?: boolean;
 }) {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -316,8 +323,9 @@ export async function transferBetweenAccounts(input: {
   }
 
   const transferGroupId = crypto.randomUUID();
+  const isPrivate = input.isPrivate ?? false;
 
-  const { error } = await supabase.from("transactions").insert([
+  const { data: inserted, error } = await supabase.from("transactions").insert([
     {
       wallet_id: input.fromWalletId,
       type: "expense",
@@ -328,6 +336,7 @@ export async function transferBetweenAccounts(input: {
       is_transfer: true,
       transfer_group_id: transferGroupId,
       transfer_peer_wallet_id: input.toWalletId,
+      is_private: isPrivate,
       created_by: user.id,
     },
     {
@@ -340,11 +349,19 @@ export async function transferBetweenAccounts(input: {
       is_transfer: true,
       transfer_group_id: transferGroupId,
       transfer_peer_wallet_id: input.fromWalletId,
+      is_private: isPrivate,
       created_by: user.id,
     },
-  ]);
+  ]).select();
 
   if (error) return { error: error.message };
+
+  if (inserted) {
+    for (const leg of inserted) {
+      await mirrorTransaction(supabase, user.id, leg, isPrivate);
+    }
+  }
+
   revalidatePath("/app");
   return { error: null };
 }

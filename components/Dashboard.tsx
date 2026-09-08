@@ -137,6 +137,7 @@ export default function Dashboard({ wallets, userId, userEmail }: { wallets: any
         amount: amt,
         date: form.date,
         description: form.description.trim(),
+        isPrivate: !!form.isPrivate,
       });
       if (error) setError(error);
       else { setAddMenu(null); loadWalletData(activeWalletId!); }
@@ -428,6 +429,7 @@ export default function Dashboard({ wallets, userId, userEmail }: { wallets: any
           wallets={walletList.filter((w) => !w.is_shared)}
           activeWalletId={activeWalletId}
           saving={savingTransfer}
+          showPrivacy={mirrorWalletIds.length > 0}
           onClose={() => setAddMenu(null)}
           onSubmit={handleTransfer}
         />
@@ -612,13 +614,13 @@ function TransactionForm({ title, categories, onClose, onSubmit, saving, showPri
   );
 }
 
-function TransferForm({ wallets, activeWalletId, onClose, onSubmit, saving }: any) {
+function TransferForm({ wallets, activeWalletId, onClose, onSubmit, saving, showPrivacy }: any) {
   const otherWallets = (id: string) => wallets.filter((w: any) => w.id !== id);
   const initialFrom = wallets.find((w: any) => w.id === activeWalletId)?.id ?? wallets[0]?.id ?? "";
   const initialTo = otherWallets(initialFrom)[0]?.id ?? "";
   const [form, setForm] = useState({
     amount: "", fromWalletId: initialFrom, toWalletId: initialTo,
-    description: "", date: new Date().toISOString().slice(0, 10),
+    description: "", date: new Date().toISOString().slice(0, 10), isPrivate: false,
   });
   return (
     <Sheet onClose={onClose} title="Trasferimento tra conti">
@@ -658,6 +660,19 @@ function TransferForm({ wallets, activeWalletId, onClose, onSubmit, saving }: an
 
         <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })}
           className="border border-line rounded-lg px-3 py-2.5 text-sm bg-white outline-none" required />
+
+        {showPrivacy && (
+          <button type="button" onClick={() => setForm({ ...form, isPrivate: !form.isPrivate })}
+            className="flex items-center gap-2 border border-line rounded-lg px-3 py-2.5 text-sm text-left">
+            <span className={`w-[18px] h-[18px] rounded border border-line flex items-center justify-center ${form.isPrivate ? "bg-gold" : ""}`}>
+              {form.isPrivate && "✓"}
+            </span>
+            <span>
+              Privata
+              <span className="block text-xs text-muted">Nel portafoglio condiviso comparira' come "Altro", senza descrizione</span>
+            </span>
+          </button>
+        )}
 
         <button type="submit" disabled={saving || !form.fromWalletId || !form.toWalletId || form.fromWalletId === form.toWalletId}
           className="bg-ink text-paper rounded-lg py-2.5 text-sm font-semibold active:opacity-80 transition-opacity disabled:opacity-50">
