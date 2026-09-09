@@ -1,11 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
 export default function LoginPage() {
-  const router = useRouter();
   const supabase = createClient();
 
   const [mode, setMode] = useState<"signin" | "signup">("signin");
@@ -28,8 +26,15 @@ export default function LoginPage() {
           ? "Email o password non corrette."
           : error.message);
       } else {
-        router.push("/app");
-        router.refresh();
+        // Navigazione completa (non router.push/refresh) per garantire
+        // che i cookie di sessione siano gia' scritti/propagati dal
+        // browser prima che parta la prima richiesta verso /app: una
+        // transizione "soft" di Next.js puo' altrimenti partire prima
+        // che i cookie (specie quelli divisi in piu' parti) siano del
+        // tutto persistiti, causando errori intermittenti come
+        // "new row violates row-level security policy" sulla prima
+        // azione eseguita subito dopo il login.
+        window.location.href = "/app";
       }
     } else {
       const { error } = await supabase.auth.signUp({

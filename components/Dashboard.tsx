@@ -242,6 +242,11 @@ export default function Dashboard({ wallets, userId, userEmail, userDisplayName 
     }
   }
 
+  async function handleSignOut() {
+    await signOut();
+    window.location.href = "/login";
+  }
+
   async function handleDeleteAccount() {
     if (deletingAccount) return;
     setDeletingAccount(true);
@@ -515,7 +520,7 @@ export default function Dashboard({ wallets, userId, userEmail, userDisplayName 
             displayName={displayName}
             onSaveName={handleSaveDisplayName}
             savingName={savingProfileName}
-            onSignOut={() => signOut()}
+            onSignOut={handleSignOut}
             onDeleteAccount={handleDeleteAccount}
             confirmingDelete={confirmingDeleteAccount}
             setConfirmingDelete={setConfirmingDeleteAccount}
