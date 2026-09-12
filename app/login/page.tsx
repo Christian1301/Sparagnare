@@ -1,10 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
-export default function LoginPage() {
+function safeRedirect(raw: string | null) {
+  if (raw && raw.startsWith("/") && !raw.startsWith("//")) return raw;
+  return "/app";
+}
+
+function LoginForm() {
   const supabase = createClient();
+  const searchParams = useSearchParams();
+  const destination = safeRedirect(searchParams.get("redirect"));
 
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
@@ -34,13 +42,15 @@ export default function LoginPage() {
         // tutto persistiti, causando errori intermittenti come
         // "new row violates row-level security policy" sulla prima
         // azione eseguita subito dopo il login.
-        window.location.href = "/app";
+        window.location.href = destination;
       }
     } else {
       const { error } = await supabase.auth.signUp({
         email,
         password,
-        options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
+        options: {
+          emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(destination)}`,
+        },
       });
       if (error) {
         setError(error.message);
@@ -55,7 +65,7 @@ export default function LoginPage() {
     setError("");
     await supabase.auth.signInWithOAuth({
       provider: "google",
-      options: { redirectTo: `${window.location.origin}/auth/callback` },
+      options: { redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(destination)}` },
     });
   }
 
@@ -128,5 +138,13 @@ export default function LoginPage() {
         </button>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginForm />
+    </Suspense>
   );
 }

@@ -22,6 +22,25 @@ export async function updateDisplayName(name: string) {
   return { error: null };
 }
 
+export async function updateUsername(username: string) {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Non autenticato." };
+
+  const trimmed = username.trim().toLowerCase().replace(/^@/, "");
+  if (!/^[a-z0-9_]{3,20}$/.test(trimmed)) {
+    return { error: "Lo username deve avere 3-20 caratteri: lettere minuscole, numeri e underscore." };
+  }
+
+  const { error } = await supabase.from("profiles").update({ username: trimmed }).eq("id", user.id);
+  if (error) {
+    if (error.code === "23505") return { error: "Questo username è già in uso." };
+    return { error: error.message };
+  }
+  revalidatePath("/app");
+  return { error: null, username: trimmed };
+}
+
 export async function deleteAccount() {
   const supabase = createClient();
   const { error } = await supabase.rpc("delete_own_account");
@@ -228,16 +247,33 @@ export async function createSharedWallet(name: string) {
   return { error: null, wallet: data };
 }
 
-export async function inviteMember(walletId: string, email: string) {
+export async function inviteMember(walletId: string, identifier: string) {
   const supabase = createClient();
 
-  const { data: userId, error: lookupError } = await supabase.rpc("get_user_id_by_email", {
-    lookup_email: email.trim().toLowerCase(),
-  });
+  const trimmed = identifier.trim();
+  if (!trimmed) return { error: "Inserisci un'email o uno username." };
 
-  if (lookupError) return { error: lookupError.message };
-  if (!userId) {
-    return { error: "Nessun utente registrato con questa email. Deve prima creare un account." };
+  let userId: string | null = null;
+
+  if (trimmed.includes("@")) {
+    const { data, error: lookupError } = await supabase.rpc("get_user_id_by_email", {
+      lookup_email: trimmed.toLowerCase(),
+    });
+    if (lookupError) return { error: lookupError.message };
+    userId = data;
+    if (!userId) {
+      return { error: "Nessun utente registrato con questa email. Deve prima creare un account." };
+    }
+  } else {
+    const uname = trimmed.replace(/^@/, "").toLowerCase();
+    const { data, error: lookupError } = await supabase.rpc("get_user_id_by_username", {
+      lookup_username: uname,
+    });
+    if (lookupError) return { error: lookupError.message };
+    userId = data;
+    if (!userId) {
+      return { error: "Nessun utente registrato con questo username." };
+    }
   }
 
   const { error } = await supabase
@@ -251,6 +287,83 @@ export async function inviteMember(walletId: string, email: string) {
 
   revalidatePath("/app");
   return { error: null };
+}
+
+export async function getOrCreateInviteLink(walletId: string) {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Non autenticato." };
+
+  const { data: existing } = await supabase
+    .from("wallet_invites")
+    .select("token")
+    .eq("wallet_id", walletId)
+    .eq("revoked", false)
+    .maybeSingle();
+
+  if (existing) return { error: null, token: existing.token as string };
+
+  const { data: created, error: createError } = await supabase
+    .from("wallet_invites")
+    .insert({ wallet_id: walletId, created_by: user.id })
+    .select("token")
+    .single();
+
+  if (createError) {
+    // race: un altro invito attivo e' stato creato nel frattempo
+    if (createError.code === "23505") {
+      const { data: raceExisting } = await supabase
+        .from("wallet_invites")
+        .select("token")
+        .eq("wallet_id", walletId)
+        .eq("revoked", false)
+        .maybeSingle();
+      if (raceExisting) return { error: null, token: raceExisting.token as string };
+    }
+    return { error: createError.message };
+  }
+
+  return { error: null, token: created.token as string };
+}
+
+export async function revokeInviteLink(walletId: string) {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("wallet_invites")
+    .update({ revoked: true })
+    .eq("wallet_id", walletId)
+    .eq("revoked", false);
+  if (error) return { error: error.message };
+  return { error: null };
+}
+
+export async function getInvitePreview(token: string) {
+  const supabase = createClient();
+  const { data, error } = await supabase.rpc("get_wallet_invite", { p_token: token });
+  if (error) return { error: error.message };
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) return { error: "Link di invito non valido." };
+
+  return {
+    error: null,
+    walletName: row.wallet_name as string,
+    isShared: row.is_shared as boolean,
+    revoked: row.revoked as boolean,
+    expiresAt: row.expires_at as string | null,
+  };
+}
+
+export async function joinWalletByInvite(token: string) {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Non autenticato." };
+
+  const { data, error } = await supabase.rpc("join_wallet_via_invite", { p_token: token });
+  if (error) return { error: error.message };
+
+  revalidatePath("/app");
+  return { error: null, walletId: data as string };
 }
 
 export async function removeMember(walletId: string, userId: string) {

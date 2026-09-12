@@ -10,7 +10,8 @@ import {
   stopRecurring, deleteWallet, leaveWallet,
   createPersonalAccount, transferBetweenAccounts, deleteTransfer,
   setMirrorEnabled, addSplitExpense, deleteSplitExpense,
-  updateDisplayName, deleteAccount,
+  updateDisplayName, deleteAccount, updateUsername,
+  getOrCreateInviteLink, revokeInviteLink,
 } from "@/app/actions";
 
 const MONTHS = ["Gennaio","Febbraio","Marzo","Aprile","Maggio","Giugno","Luglio","Agosto","Settembre","Ottobre","Novembre","Dicembre"];
@@ -20,7 +21,7 @@ function formatEUR(n: number) {
   return new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR" }).format(n || 0);
 }
 
-export default function Dashboard({ wallets, userId, userEmail, userDisplayName }: { wallets: any[]; userId: string; userEmail: string; userDisplayName?: string }) {
+export default function Dashboard({ wallets, userId, userEmail, userDisplayName, userUsername }: { wallets: any[]; userId: string; userEmail: string; userDisplayName?: string; userUsername?: string }) {
   const supabase = createClient();
   const [walletList, setWalletList] = useState(wallets);
   const [activeWalletId, setActiveWalletId] = useState(wallets[0]?.id ?? null);
@@ -42,6 +43,10 @@ export default function Dashboard({ wallets, userId, userEmail, userDisplayName 
   const [showProfile, setShowProfile] = useState(false);
   const [displayName, setDisplayName] = useState(userDisplayName || "");
   const [savingProfileName, setSavingProfileName] = useState(false);
+  const [username, setUsername] = useState(userUsername || "");
+  const [savingUsername, setSavingUsername] = useState(false);
+  const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [loadingInviteLink, setLoadingInviteLink] = useState(false);
   const [confirmingDeleteAccount, setConfirmingDeleteAccount] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
@@ -59,7 +64,7 @@ export default function Dashboard({ wallets, userId, userEmail, userDisplayName 
     ] = await Promise.all([
       supabase.from("categories").select("*").eq("wallet_id", walletId).order("name"),
       supabase.from("transactions").select("*").eq("wallet_id", walletId).order("date", { ascending: false }),
-      supabase.from("wallet_members").select("user_id, role, mirror_enabled, profiles(email, display_name)").eq("wallet_id", walletId),
+      supabase.from("wallet_members").select("user_id, role, mirror_enabled, profiles(email, display_name, username)").eq("wallet_id", walletId),
     ]);
     const loadError = catsError || txsError || memsError;
     if (loadError) {
@@ -224,8 +229,8 @@ export default function Dashboard({ wallets, userId, userEmail, userDisplayName 
     loadWalletData(activeWalletId!);
   }
 
-  async function handleInvite(email: string) {
-    const { error } = await inviteMember(activeWalletId!, email);
+  async function handleInvite(identifier: string) {
+    const { error } = await inviteMember(activeWalletId!, identifier);
     if (error) setError(error);
     else { setError(""); loadWalletData(activeWalletId!); }
   }
@@ -240,6 +245,37 @@ export default function Dashboard({ wallets, userId, userEmail, userDisplayName 
     } finally {
       setSavingProfileName(false);
     }
+  }
+
+  async function handleSaveUsername(name: string) {
+    if (savingUsername) return;
+    setSavingUsername(true);
+    try {
+      const { error, username: saved } = await updateUsername(name);
+      if (error) setError(error);
+      else { setError(""); setUsername(saved || name.trim().toLowerCase()); }
+    } finally {
+      setSavingUsername(false);
+    }
+  }
+
+  async function handleGetInviteLink() {
+    if (loadingInviteLink || !activeWalletId) return;
+    setLoadingInviteLink(true);
+    try {
+      const { error, token } = await getOrCreateInviteLink(activeWalletId);
+      if (error) { setError(error); return; }
+      setInviteLink(`${window.location.origin}/invite/${token}`);
+    } finally {
+      setLoadingInviteLink(false);
+    }
+  }
+
+  async function handleRevokeInviteLink() {
+    if (!activeWalletId) return;
+    const { error } = await revokeInviteLink(activeWalletId);
+    if (error) { setError(error); return; }
+    setInviteLink(null);
   }
 
   async function handleSignOut() {
@@ -485,7 +521,7 @@ export default function Dashboard({ wallets, userId, userEmail, userDisplayName 
 
       {showMembers && activeWallet && (
         <Sheet
-          onClose={() => { setShowMembers(false); setConfirmingWalletAction(false); }}
+          onClose={() => { setShowMembers(false); setConfirmingWalletAction(false); setInviteLink(null); }}
           title="Persone con accesso"
         >
           <MembersBody
@@ -500,6 +536,10 @@ export default function Dashboard({ wallets, userId, userEmail, userDisplayName 
             setConfirmingWalletAction={setConfirmingWalletAction}
             mirrorEnabled={mirrorWalletIds.includes(activeWalletId)}
             onToggleMirror={handleToggleMirror}
+            inviteLink={inviteLink}
+            loadingInviteLink={loadingInviteLink}
+            onGetInviteLink={handleGetInviteLink}
+            onRevokeInviteLink={handleRevokeInviteLink}
           />
         </Sheet>
       )}
@@ -520,6 +560,9 @@ export default function Dashboard({ wallets, userId, userEmail, userDisplayName 
             displayName={displayName}
             onSaveName={handleSaveDisplayName}
             savingName={savingProfileName}
+            username={username}
+            onSaveUsername={handleSaveUsername}
+            savingUsername={savingUsername}
             onSignOut={handleSignOut}
             onDeleteAccount={handleDeleteAccount}
             confirmingDelete={confirmingDeleteAccount}
@@ -834,14 +877,18 @@ function MembersBody({
   members, userId, isOwner, onInvite, onRemove,
   onDeleteWallet, onLeaveWallet, confirmingWalletAction, setConfirmingWalletAction,
   mirrorEnabled, onToggleMirror,
+  inviteLink, loadingInviteLink, onGetInviteLink, onRevokeInviteLink,
 }: any) {
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
   return (
     <div>
       <div className="flex flex-col gap-2 mb-4">
         {members.map((m: any) => (
           <div key={m.user_id} className="flex items-center justify-between text-sm">
-            <span>{m.profiles?.display_name || m.profiles?.email} {m.role === "owner" && "(proprietario)"}</span>
+            <span>
+              {m.profiles?.display_name || (m.profiles?.username && `@${m.profiles.username}`) || m.profiles?.email}
+              {" "}{m.role === "owner" && "(proprietario)"}
+            </span>
             {isOwner && m.user_id !== userId && (
               <button onClick={() => onRemove(m.user_id)} aria-label="Rimuovi persona" className="text-muted w-9 h-9 flex items-center justify-center active:bg-line rounded-full transition-colors shrink-0">🗑</button>
             )}
@@ -850,16 +897,30 @@ function MembersBody({
       </div>
       {isOwner && (
         <div className="flex gap-2">
-          <input placeholder="Email da invitare" value={email} onChange={(e) => setEmail(e.target.value)}
+          <input placeholder="Email o username da invitare" value={identifier} onChange={(e) => setIdentifier(e.target.value)}
             className="flex-1 border border-line rounded-lg px-3 py-2.5 text-sm bg-white outline-none" />
-          <button onClick={() => { onInvite(email); setEmail(""); }} className="bg-ink text-paper rounded-lg px-4 text-sm active:opacity-80 transition-opacity">
+          <button onClick={() => { onInvite(identifier); setIdentifier(""); }} className="bg-ink text-paper rounded-lg px-4 text-sm active:opacity-80 transition-opacity">
             Invita
           </button>
         </div>
       )}
       <p className="text-xs text-muted mt-3">
-        L&apos;invitato deve avere già un account su questa app con la stessa email.
+        L&apos;invitato deve avere già un account su questa app con la stessa email o username.
       </p>
+
+      {isOwner && (
+        <div className="mt-4 pt-4 border-t border-line">
+          <div className="text-xs text-muted mb-2">Oppure condividi un link di invito</div>
+          {inviteLink ? (
+            <InviteLinkBox link={inviteLink} onRevoke={onRevokeInviteLink} />
+          ) : (
+            <button onClick={onGetInviteLink} disabled={loadingInviteLink}
+              className="border border-line rounded-lg py-2.5 text-sm w-full disabled:opacity-50">
+              {loadingInviteLink ? "..." : "Crea link di invito"}
+            </button>
+          )}
+        </div>
+      )}
 
       <div className="mt-5 pt-4 border-t border-line">
         <button
@@ -910,11 +971,56 @@ function MembersBody({
   );
 }
 
+function InviteLinkBox({ link, onRevoke }: { link: string; onRevoke: () => void }) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // clipboard non disponibile: il link resta comunque selezionabile a mano
+    }
+  }
+
+  async function handleShare() {
+    if (typeof navigator !== "undefined" && (navigator as any).share) {
+      try {
+        await (navigator as any).share({ title: "Unisciti al portafoglio su Sparagnare", url: link });
+      } catch {
+        // utente ha annullato la condivisione: nessuna azione
+      }
+      return;
+    }
+    handleCopy();
+  }
+
+  return (
+    <div>
+      <div className="border border-line rounded-lg px-3 py-2.5 text-xs bg-white break-all mb-2">{link}</div>
+      <div className="flex gap-2">
+        <button onClick={handleShare} className="flex-1 bg-ink text-paper rounded-lg py-2 text-sm active:opacity-80 transition-opacity">
+          Condividi
+        </button>
+        <button onClick={handleCopy} className="border border-line rounded-lg py-2 px-3 text-sm">
+          {copied ? "Copiato!" : "Copia"}
+        </button>
+      </div>
+      <button onClick={onRevoke} className="text-xs text-rust underline mt-2">
+        Revoca link
+      </button>
+    </div>
+  );
+}
+
 function ProfileBody({
   email, displayName, onSaveName, savingName,
+  username, onSaveUsername, savingUsername,
   onSignOut, onDeleteAccount, confirmingDelete, setConfirmingDelete, deletingAccount,
 }: any) {
   const [name, setName] = useState(displayName || "");
+  const [uname, setUname] = useState(username || "");
   return (
     <div>
       <div className="text-xs text-muted mb-1">Email</div>
@@ -930,6 +1036,18 @@ function ProfileBody({
         </button>
       </div>
       <p className="text-xs text-muted mb-5">Usato ad esempio nella lista membri dei portafogli condivisi.</p>
+
+      <div className="text-xs text-muted mb-1">Username</div>
+      <div className="flex gap-2 mb-1">
+        <input value={uname} onChange={(e) => setUname(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))}
+          maxLength={20}
+          className="flex-1 border border-line rounded-lg px-3 py-2.5 text-sm bg-white outline-none" />
+        <button onClick={() => onSaveUsername(uname)} disabled={savingUsername || uname.trim().length < 3}
+          className="bg-ink text-paper rounded-lg px-4 text-sm active:opacity-80 transition-opacity disabled:opacity-50">
+          {savingUsername ? "..." : "Salva"}
+        </button>
+      </div>
+      <p className="text-xs text-muted mb-5">Univoco: usalo per farti invitare nei portafogli condivisi senza dare la tua email.</p>
 
       <div className="pt-4 border-t border-line">
         <button onClick={onSignOut} className="w-full text-left text-sm py-2">

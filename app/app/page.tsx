@@ -25,7 +25,7 @@ export default async function AppPage() {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("display_name")
+    .select("display_name, username")
     .eq("id", user.id)
     .single();
 
@@ -35,6 +35,7 @@ export default async function AppPage() {
       userId={user.id}
       userEmail={user.email ?? ""}
       userDisplayName={profile?.display_name ?? ""}
+      userUsername={profile?.username ?? ""}
     />
   );
 }
