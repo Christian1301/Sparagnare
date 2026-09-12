@@ -217,21 +217,13 @@ export async function createSharedWallet(name: string) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: "Non autenticato." };
 
-  // DEBUG TEMPORANEO: confronta l'utente di getUser() con quello visto
-  // dal database al momento dell'inserimento. Da rimuovere dopo il fix.
-  const { data: dbUid, error: whoamiError } = await supabase.rpc("whoami");
-
   const { data, error } = await supabase
     .from("wallets")
     .insert({ owner_id: user.id, name, is_shared: true })
     .select()
     .single();
 
-  if (error) {
-    return {
-      error: `${error.message} [debug: getUser=${user.id} dbUid=${dbUid ?? "null"} whoamiErr=${whoamiError?.message ?? "none"}]`,
-    };
-  }
+  if (error) return { error: error.message };
   revalidatePath("/app");
   return { error: null, wallet: data };
 }
