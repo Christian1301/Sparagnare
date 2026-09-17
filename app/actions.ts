@@ -491,10 +491,16 @@ export async function transferBetweenAccounts(input: {
 
   if (error) return { error: error.message };
 
-  if (inserted) {
-    for (const leg of inserted) {
-      await mirrorTransaction(supabase, user.id, leg, isPrivate);
-    }
+  // Rispecchia solo la gamba di uscita (dal conto principale): un
+  // trasferimento tra conti propri non è una spesa reale, ma i membri
+  // del portafoglio condiviso devono comunque vedere che quei soldi sono
+  // usciti dal conto "attivo". Rispecchiare anche l'ingresso nel conto di
+  // risparmio farebbe comparire due voci (uscita + entrata) per lo stesso
+  // movimento, che si annullano a bilancio ma appaiono come una spesa e
+  // un'entrata duplicate.
+  const expenseLeg = inserted?.find((leg: any) => leg.type === "expense");
+  if (expenseLeg) {
+    await mirrorTransaction(supabase, user.id, expenseLeg, isPrivate);
   }
 
   revalidatePath("/app");
