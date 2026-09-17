@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { occursInMonth } from "@/lib/finance";
 import MonthlyTrendChart from "@/components/MonthlyTrendChart";
+import CategoryPieChart from "@/components/CategoryPieChart";
 import {
   addTransaction, deleteTransaction, addCategory, deleteCategory,
   createSharedWallet, inviteMember, removeMember, signOut,
@@ -387,6 +388,10 @@ export default function Dashboard({ wallets, userId, userEmail, userDisplayName,
         <>
           <section className="px-5 pt-3 pb-1 border-t border-line mt-1">
             <MonthlyTrendChart transactions={transactions} cursor={cursor} />
+          </section>
+
+          <section className="px-5 pt-3 pb-1 border-t border-line mt-1">
+            <CategoryPieChart expenses={monthExpenses} categories={categories} />
           </section>
 
           <section className="px-5 pt-2">
